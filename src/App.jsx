@@ -179,7 +179,8 @@ function AddCaseModal({ onAdd, onClose }) {
     if (!form.patient || !form.file) return;
 
     onAdd({
-      patient: form.patient,
+  id: Date.now(),
+  patient: form.patient,
       file: form.file,
       teeth: Number(form.teeth) || 1,
       type: form.type,
