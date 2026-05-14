@@ -8,50 +8,7 @@ const STATUS_COLORS = {
   "مشكلة ❌": { bg: "#fee2e2", text: "#991b1b", dot: "#ef4444" },
 };
 
-const initialCases = [
-  {
-    id: "001",
-    patient: "محمد العمري",
-    file: "F-1041",
-    teeth: 3,
-    type: "تاج زركون",
-    shade: "A2",
-    sentDate: "2025-05-10",
-    eta: "2025-05-20",
-    stage: 2,
-    techNote: "",
-    status: "تمام ✅",
-    notes: "",
-  },
-  {
-    id: "002",
-    patient: "سارة الخالد",
-    file: "F-1042",
-    teeth: 2,
-    type: "فينير",
-    shade: "B1",
-    sentDate: "2025-05-11",
-    eta: "2025-05-22",
-    stage: 1,
-    techNote: "الطبعة تحتاج إعادة",
-    status: "ملاحظة ⚠️",
-    notes: "تم إبلاغ الدكتور",
-  },
-  {
-    id: "003",
-    patient: "خالد المنصور",
-    file: "F-1039",
-    teeth: 6,
-    type: "جسر كامل",
-    shade: "A3",
-    sentDate: "2025-05-07",
-    eta: "2025-05-17",
-    stage: 3,
-    techNote: "",
-    status: "تمام ✅",
-    notes: "",
-  },
-];
+const initialCases = [];
 
 function StageBar({ stage }) {
   return (
