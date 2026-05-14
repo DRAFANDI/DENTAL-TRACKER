@@ -1,4 +1,10 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { createClient } from "@supabase/supabase-js";
+
+const supabase = createClient(
+  import.meta.env.VITE_SUPABASE_URL || import.meta.env.NEXT_PUBLIC_SUPABASE_URL,
+  import.meta.env.VITE_SUPABASE_ANON_KEY || import.meta.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+);
 
 const STAGES = ["استلام المقاس", "عند المعمل", "قيد التصنيع", "جاهز للتسليم", "تم التسليم"];
 
@@ -7,8 +13,6 @@ const STATUS_COLORS = {
   "ملاحظة ⚠️": { bg: "#fef3c7", text: "#92400e", dot: "#f59e0b" },
   "مشكلة ❌": { bg: "#fee2e2", text: "#991b1b", dot: "#ef4444" },
 };
-
-const initialCases = [];
 
 function StageBar({ stage }) {
   return (
@@ -23,16 +27,11 @@ function StageBar({ stage }) {
             fontSize: 10, color: i <= stage ? "#fff" : "#9ca3af",
             fontWeight: 700, flexShrink: 0,
             boxShadow: i === stage ? "0 0 0 3px #e0e7ff" : "none",
-            transition: "all 0.3s"
           }}>
             {i < stage ? "✓" : i + 1}
           </div>
           {i < STAGES.length - 1 && (
-            <div style={{
-              flex: 1, height: 2,
-              background: i < stage ? "#1a1a2e" : "#e5e7eb",
-              transition: "background 0.3s"
-            }} />
+            <div style={{ flex: 1, height: 2, background: i < stage ? "#1a1a2e" : "#e5e7eb" }} />
           )}
         </div>
       ))}
@@ -49,27 +48,18 @@ function CaseCard({ c, onUpdate }) {
 
   return (
     <div style={{
-      background: "#fff",
-      borderRadius: 16,
-      border: "1px solid #f0f0f8",
+      background: "#fff", borderRadius: 16, border: "1px solid #f0f0f8",
       boxShadow: expanded ? "0 8px 32px rgba(99,102,241,0.10)" : "0 2px 8px rgba(0,0,0,0.04)",
-      padding: "18px 20px",
-      transition: "all 0.25s",
-      cursor: "pointer",
-      direction: "rtl"
+      padding: "18px 20px", cursor: "pointer", direction: "rtl"
     }} onClick={() => setExpanded(e => !e)}>
 
-      {/* Header */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
         <div>
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <span style={{ fontWeight: 800, fontSize: 16, color: "#1a1a2e", fontFamily: "Georgia, serif" }}>
-              {c.patient}
-            </span>
+            <span style={{ fontWeight: 800, fontSize: 16, color: "#1a1a2e" }}>{c.patient}</span>
             <span style={{
               fontSize: 11, fontWeight: 600, padding: "2px 8px", borderRadius: 20,
-              background: sc.bg, color: sc.text,
-              display: "flex", alignItems: "center", gap: 4
+              background: sc.bg, color: sc.text, display: "flex", alignItems: "center", gap: 4
             }}>
               <span style={{ width: 6, height: 6, borderRadius: "50%", background: sc.dot, display: "inline-block" }} />
               {c.status}
@@ -87,25 +77,12 @@ function CaseCard({ c, onUpdate }) {
           }}>
             {isLate ? `متأخر ${Math.abs(daysLeft)} يوم` : isUrgent ? `${daysLeft} أيام` : `${daysLeft} يوم`}
           </div>
-          <div style={{ fontSize: 11, color: "#9ca3af", marginTop: 4, textAlign: "center" }}>
-            {c.eta}
-          </div>
+          <div style={{ fontSize: 11, color: "#9ca3af", marginTop: 4, textAlign: "center" }}>{c.eta}</div>
         </div>
       </div>
 
-      {/* Stage Bar */}
       <StageBar stage={c.stage} />
-      <div style={{ display: "flex", justifyContent: "space-between", marginTop: 4 }}>
-        {STAGES.map((s, i) => (
-          <span key={i} style={{
-            fontSize: 9, color: i === c.stage ? "#6366f1" : "#d1d5db",
-            fontWeight: i === c.stage ? 700 : 400,
-            flex: 1, textAlign: i === 0 ? "right" : i === STAGES.length - 1 ? "left" : "center"
-          }}>{s}</span>
-        ))}
-      </div>
 
-      {/* Tech Note */}
       {c.techNote && (
         <div style={{
           marginTop: 10, padding: "8px 12px", borderRadius: 10,
@@ -116,32 +93,25 @@ function CaseCard({ c, onUpdate }) {
         </div>
       )}
 
-      {/* Expanded Actions */}
       {expanded && (
-        <div style={{ marginTop: 14, borderTop: "1px solid #f3f4f6", paddingTop: 14 }}
-          onClick={e => e.stopPropagation()}>
+        <div style={{ marginTop: 14, borderTop: "1px solid #f3f4f6", paddingTop: 14 }} onClick={e => e.stopPropagation()}>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
             {STAGES.map((s, i) => (
-              <button key={i} onClick={() => onUpdate(c.id, { stage: i })}
-                style={{
-                  padding: "8px 0", borderRadius: 10, border: "none", cursor: "pointer",
-                  background: c.stage === i ? "#1a1a2e" : "#f9fafb",
-                  color: c.stage === i ? "#fff" : "#374151",
-                  fontSize: 12, fontWeight: 600, transition: "all 0.2s"
-                }}>
-                {s}
-              </button>
+              <button key={i} onClick={() => onUpdate(c.id, { stage: i })} style={{
+                padding: "8px 0", borderRadius: 10, border: "none", cursor: "pointer",
+                background: c.stage === i ? "#1a1a2e" : "#f9fafb",
+                color: c.stage === i ? "#fff" : "#374151",
+                fontSize: 12, fontWeight: 600
+              }}>{s}</button>
             ))}
-            <button onClick={() => onUpdate(c.id, { status: "تمام ✅" })}
-              style={{
-                padding: "8px 0", borderRadius: 10, border: "none", cursor: "pointer",
-                background: "#d1fae5", color: "#065f46", fontSize: 12, fontWeight: 600
-              }}>تمام ✅</button>
-            <button onClick={() => onUpdate(c.id, { status: "ملاحظة ⚠️" })}
-              style={{
-                padding: "8px 0", borderRadius: 10, border: "none", cursor: "pointer",
-                background: "#fef3c7", color: "#92400e", fontSize: 12, fontWeight: 600
-              }}>ملاحظة ⚠️</button>
+            <button onClick={() => onUpdate(c.id, { status: "تمام ✅" })} style={{
+              padding: "8px 0", borderRadius: 10, border: "none", cursor: "pointer",
+              background: "#d1fae5", color: "#065f46", fontSize: 12, fontWeight: 600
+            }}>تمام ✅</button>
+            <button onClick={() => onUpdate(c.id, { status: "ملاحظة ⚠️" })} style={{
+              padding: "8px 0", borderRadius: 10, border: "none", cursor: "pointer",
+              background: "#fef3c7", color: "#92400e", fontSize: 12, fontWeight: 600
+            }}>ملاحظة ⚠️</button>
           </div>
         </div>
       )}
@@ -150,17 +120,18 @@ function CaseCard({ c, onUpdate }) {
 }
 
 function AddCaseModal({ onAdd, onClose }) {
-  const [form, setForm] = useState({
-    patient: "", file: "", teeth: "", type: "", shade: "", eta: ""
-  });
+  const [form, setForm] = useState({ patient: "", file: "", teeth: "", type: "", shade: "", eta: "" });
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
 
   const handleAdd = () => {
     if (!form.patient || !form.file) return;
     onAdd({
-      id: Date.now().toString(),
-      ...form,
+      patient: form.patient,
+      file: form.file,
       teeth: Number(form.teeth) || 1,
+      type: form.type,
+      shade: form.shade,
+      eta: form.eta,
       sentDate: new Date().toISOString().split("T")[0],
       stage: 0,
       techNote: "",
@@ -172,8 +143,7 @@ function AddCaseModal({ onAdd, onClose }) {
 
   const inputStyle = {
     width: "100%", padding: "10px 12px", borderRadius: 10, border: "1px solid #e5e7eb",
-    fontSize: 13, fontFamily: "inherit", background: "#fafafa", direction: "rtl",
-    outline: "none", boxSizing: "border-box"
+    fontSize: 13, background: "#fafafa", direction: "rtl", outline: "none", boxSizing: "border-box"
   };
 
   return (
@@ -185,9 +155,7 @@ function AddCaseModal({ onAdd, onClose }) {
         background: "#fff", borderRadius: 20, padding: 28, width: 340,
         direction: "rtl", boxShadow: "0 20px 60px rgba(0,0,0,0.15)"
       }} onClick={e => e.stopPropagation()}>
-        <h3 style={{ margin: "0 0 20px", fontSize: 18, fontWeight: 800, color: "#1a1a2e" }}>
-          إضافة حالة جديدة
-        </h3>
+        <h3 style={{ margin: "0 0 20px", fontSize: 18, fontWeight: 800, color: "#1a1a2e" }}>إضافة حالة جديدة</h3>
         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
           <input style={inputStyle} placeholder="اسم المريض *" value={form.patient} onChange={e => set("patient", e.target.value)} />
           <input style={inputStyle} placeholder="رقم الملف *" value={form.file} onChange={e => set("file", e.target.value)} />
@@ -212,15 +180,50 @@ function AddCaseModal({ onAdd, onClose }) {
 }
 
 export default function App() {
-  const [cases, setCases] = useState(initialCases);
+  const [cases, setCases] = useState([]);
   const [filter, setFilter] = useState("الكل");
   const [showAdd, setShowAdd] = useState(false);
+  const [loading, setLoading] = useState(true);
 
-  const updateCase = (id, patch) => {
+  const loadCases = async () => {
+    setLoading(true);
+    const { data, error } = await supabase
+      .from("cases")
+      .select("*")
+      .order("id", { ascending: false });
+
+    if (error) {
+      console.error(error);
+      alert("في مشكلة بجلب البيانات من Supabase");
+    } else {
+      setCases(data || []);
+    }
+    setLoading(false);
+  };
+
+  useEffect(() => {
+    loadCases();
+  }, []);
+
+  const updateCase = async (id, patch) => {
+    const { error } = await supabase.from("cases").update(patch).eq("id", id);
+    if (error) {
+      console.error(error);
+      alert("ما قدرنا نحدث الحالة");
+      return;
+    }
     setCases(cs => cs.map(c => c.id === id ? { ...c, ...patch } : c));
   };
 
-  const addCase = (c) => setCases(cs => [c, ...cs]);
+  const addCase = async (c) => {
+    const { data, error } = await supabase.from("cases").insert([c]).select().single();
+    if (error) {
+      console.error(error);
+      alert("ما قدرنا نحفظ الحالة في Supabase");
+      return;
+    }
+    setCases(cs => [data, ...cs]);
+  };
 
   const filters = ["الكل", "ملاحظة ⚠️", "جاهز للتسليم", "متأخر"];
 
@@ -240,21 +243,11 @@ export default function App() {
   };
 
   return (
-    <div style={{
-      minHeight: "100vh", background: "#f8f8fc",
-      fontFamily: "'Segoe UI', Tahoma, Geneva, Verdana, sans-serif",
-      direction: "rtl"
-    }}>
-      {/* Header */}
-      <div style={{
-        background: "#1a1a2e", padding: "20px 20px 16px",
-        position: "sticky", top: 0, zIndex: 50
-      }}>
+    <div style={{ minHeight: "100vh", background: "#f8f8fc", fontFamily: "'Segoe UI', Tahoma, Geneva, Verdana, sans-serif", direction: "rtl" }}>
+      <div style={{ background: "#1a1a2e", padding: "20px 20px 16px", position: "sticky", top: 0, zIndex: 50 }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
           <div>
-            <div style={{ fontSize: 18, fontWeight: 800, color: "#fff", letterSpacing: -0.5 }}>
-              🦷 متابعة المعمل
-            </div>
+            <div style={{ fontSize: 18, fontWeight: 800, color: "#fff", letterSpacing: -0.5 }}>🦷 متابعة المعمل</div>
             <div style={{ fontSize: 11, color: "#818cf8", marginTop: 2 }}>
               {cases.length} حالة نشطة
             </div>
@@ -266,7 +259,6 @@ export default function App() {
           }}>+ حالة جديدة</button>
         </div>
 
-        {/* Stats */}
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 8, marginTop: 14 }}>
           {[
             { label: "إجمالي", value: stats.total, color: "#818cf8" },
@@ -274,10 +266,7 @@ export default function App() {
             { label: "جاهز", value: stats.ready, color: "#34d399" },
             { label: "متأخر", value: stats.late, color: "#f87171" },
           ].map(s => (
-            <div key={s.label} style={{
-              background: "rgba(255,255,255,0.07)", borderRadius: 10,
-              padding: "8px 6px", textAlign: "center"
-            }}>
+            <div key={s.label} style={{ background: "rgba(255,255,255,0.07)", borderRadius: 10, padding: "8px 6px", textAlign: "center" }}>
               <div style={{ fontSize: 20, fontWeight: 800, color: s.color }}>{s.value}</div>
               <div style={{ fontSize: 10, color: "#94a3b8", marginTop: 1 }}>{s.label}</div>
             </div>
@@ -285,7 +274,6 @@ export default function App() {
         </div>
       </div>
 
-      {/* Filters */}
       <div style={{ padding: "14px 16px 0", display: "flex", gap: 8, overflowX: "auto" }}>
         {filters.map(f => (
           <button key={f} onClick={() => setFilter(f)} style={{
@@ -298,12 +286,11 @@ export default function App() {
         ))}
       </div>
 
-      {/* Cases */}
       <div style={{ padding: "12px 16px 32px", display: "flex", flexDirection: "column", gap: 12 }}>
-        {filtered.length === 0 ? (
-          <div style={{ textAlign: "center", color: "#9ca3af", padding: "40px 0", fontSize: 14 }}>
-            لا توجد حالات
-          </div>
+        {loading ? (
+          <div style={{ textAlign: "center", color: "#9ca3af", padding: "40px 0", fontSize: 14 }}>جاري تحميل الحالات...</div>
+        ) : filtered.length === 0 ? (
+          <div style={{ textAlign: "center", color: "#9ca3af", padding: "40px 0", fontSize: 14 }}>لا توجد حالات</div>
         ) : filtered.map(c => (
           <CaseCard key={c.id} c={c} onUpdate={updateCase} />
         ))}
