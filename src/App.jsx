@@ -7,12 +7,23 @@ const supabase = createClient(
 );
 
 const STAGES = ["استلام المقاس", "عند المعمل", "قيد التصنيع", "جاهز للتسليم", "تم التسليم"];
-const STATUSES = ["تمام ✅", "ملاحظة ⚠️", "مشكلة ❌"];
 const CONTACTS = ["لم يتم التواصل", "تم التواصل", "تم حجز موعد التسليم", "لم يرد"];
 
 function daysLeft(eta) {
   if (!eta) return null;
   return Math.ceil((new Date(eta) - new Date()) / 86400000);
+}
+
+function hasAnyNote(c) {
+  return !!(
+    String(c.notes || "").trim() ||
+    String(c.technote || "").trim() ||
+    String(c.doctornote || "").trim()
+  );
+}
+
+function getAutoStatus(c) {
+  return hasAnyNote(c) ? "ملاحظة ⚠️" : "تمام ✅";
 }
 
 function App() {
@@ -37,36 +48,27 @@ function App() {
 
   const addCase = async (c) => {
     const { data, error } = await supabase.from("cases").insert([c]).select().single();
+
     if (error) {
       console.error(error);
       alert("فشل حفظ الحالة");
       return;
     }
+
     setCases((old) => [data, ...old]);
   };
 
   const updateCase = async (id, patch) => {
     const { error } = await supabase.from("cases").update(patch).eq("id", id);
+
     if (error) {
       console.error(error);
       alert("فشل التعديل");
       return;
     }
+
     setCases((old) => old.map((c) => (c.id === id ? { ...c, ...patch } : c)));
   };
-
-  const deleteCase = async (id) => {
-    if (!confirm("هل تريد حذف هذه الحالة؟")) return;
-    const { error } = await supabase.from("cases").delete().eq("id", id);
-    if (error) {
-      console.error(error);
-      alert("فشل الحذف");
-      return;
-    }
-    setCases((old) => old.filter((c) => c.id !== id));
-  };
-
-  const hasAnyNote = (c) => !!(c.notes || c.technote || c.doctornote);
 
   const stats = {
     lab: cases.filter((c) => [0, 1, 2].includes(c.stage)).length,
@@ -82,6 +84,7 @@ function App() {
 
   const filteredCases = cases.filter((c) => {
     const q = search.trim().toLowerCase();
+
     const matchSearch =
       !q ||
       String(c.patient || "").toLowerCase().includes(q) ||
@@ -99,7 +102,7 @@ function App() {
     if (filter === "تسليم قريب") return d !== null && d >= 0 && d <= 2 && c.stage !== 4;
     if (filter === "ملاحظات") return hasAnyNote(c);
     if (filter === "لم يتم التواصل") return !c.contact || c.contact === "لم يتم التواصل" || c.contact === "لم يرد";
-    if (filter === "مشكلة") return c.status === "مشكلة ❌";
+
     return true;
   });
 
@@ -111,7 +114,10 @@ function App() {
             <div style={{ fontSize: 20, fontWeight: 900 }}>🦷 متابعة المعمل</div>
             <div style={{ fontSize: 12, opacity: 0.75 }}>{cases.length} حالة نشطة</div>
           </div>
-          <button onClick={() => setShowAdd(true)} style={primaryBtn}>+ حالة جديدة</button>
+
+          <button onClick={() => setShowAdd(true)} style={primaryBtn}>
+            + حالة جديدة
+          </button>
         </div>
 
         <div style={statsGrid}>
@@ -133,7 +139,7 @@ function App() {
         />
 
         <div style={filtersRow}>
-          {["الكل", "داخل المعمل", "جاهز للتسليم", "تسليم قريب", "متأخر", "تم التسليم", "ملاحظات", "لم يتم التواصل", "مشكلة"].map((f) => (
+          {["الكل", "داخل المعمل", "جاهز للتسليم", "تسليم قريب", "متأخر", "تم التسليم", "ملاحظات", "لم يتم التواصل"].map((f) => (
             <button key={f} onClick={() => setFilter(f)} style={filter === f ? activeFilter : filterBtn}>
               {f}
             </button>
@@ -146,7 +152,7 @@ function App() {
           <div style={{ textAlign: "center", color: "#999", marginTop: 40 }}>لا توجد حالات</div>
         ) : (
           filteredCases.map((c) => (
-            <CaseCard key={c.id} c={c} onUpdate={updateCase} onDelete={deleteCase} />
+            <CaseCard key={c.id} c={c} onUpdate={updateCase} />
           ))
         )}
       </main>
@@ -159,54 +165,51 @@ function App() {
 function Stat({ label, value, danger }) {
   return (
     <div style={statBox}>
-      <div style={{ fontSize: 22, fontWeight: 900, color: danger ? "#f87171" : "#a5b4fc" }}>{value}</div>
+      <div style={{ fontSize: 22, fontWeight: 900, color: danger ? "#f87171" : "#a5b4fc" }}>
+        {value}
+      </div>
       <div style={{ fontSize: 10, color: "#cbd5e1" }}>{label}</div>
     </div>
   );
 }
 
-function CaseCard({ c, onUpdate, onDelete }) {
+function CaseCard({ c, onUpdate }) {
   const [open, setOpen] = useState(false);
-  const [editMode, setEditMode] = useState(false);
 
   const [notes, setNotes] = useState(c.notes || "");
   const [technote, setTechnote] = useState(c.technote || "");
   const [doctornote, setDoctornote] = useState(c.doctornote || "");
 
-  const [edit, setEdit] = useState({
-    patient: c.patient || "",
-    phone: c.phone || "",
-    file: c.file || "",
-    teeth: c.teeth || "",
-    type: c.type || "",
-    shade: c.shade || "",
-    eta: c.eta || "",
-  });
-
   const d = daysLeft(c.eta);
+
   const timeText =
-    d === null ? "بدون تاريخ تسليم" :
-    d < 0 ? `متأخر ${Math.abs(d)} يوم` :
-    d === 0 ? "تسليم اليوم" :
-    `متبقي ${d} يوم`;
+    d === null
+      ? "بدون تاريخ تسليم"
+      : d < 0
+      ? `متأخر ${Math.abs(d)} يوم`
+      : d === 0
+      ? "تسليم اليوم"
+      : `متبقي ${d} يوم`;
 
   const missing = !c.eta || !c.shade || !c.teeth || !c.phone;
-  const hasNotes = !!(c.notes || c.technote || c.doctornote);
-  const whatsappLink = c.phone ? `https://wa.me/${String(c.phone).replace(/\D/g, "")}` : null;
+  const autoStatus = getAutoStatus(c);
 
-  const saveNotes = () => onUpdate(c.id, { notes, technote, doctornote });
+  const cleanPhone = String(c.phone || "").replace(/\D/g, "");
+  const whatsappMessage = encodeURIComponent(
+    `مرحباً ${c.patient || ""}، نود إبلاغك بخصوص تركيبتك / حالتك الخاصة برقم الملف ${c.file || ""}.`
+  );
+  const whatsappLink = cleanPhone ? `https://wa.me/${cleanPhone}?text=${whatsappMessage}` : null;
 
-  const saveBasicInfo = () => {
+  const saveNotes = () => {
+    const nextCase = { ...c, notes, technote, doctornote };
+    const nextStatus = getAutoStatus(nextCase);
+
     onUpdate(c.id, {
-      patient: edit.patient,
-      phone: edit.phone,
-      file: edit.file,
-      teeth: Number(edit.teeth) || 1,
-      type: edit.type,
-      shade: edit.shade,
-      eta: edit.eta,
+      notes,
+      technote,
+      doctornote,
+      status: nextStatus,
     });
-    setEditMode(false);
   };
 
   return (
@@ -215,16 +218,26 @@ function CaseCard({ c, onUpdate, onDelete }) {
         <div style={cardTop}>
           <div>
             <div style={{ fontWeight: 900, fontSize: 16 }}>{c.patient}</div>
-            <div style={smallText}>ملف {c.file} · {c.type || "بدون نوع"} · {c.teeth} أسنان · {c.shade || "بدون لون"}</div>
-            <div style={smallText}>📞 {c.phone || "لا يوجد جوال"} · التواصل: {c.contact || "لم يتم التواصل"}</div>
+
+            <div style={smallText}>
+              ملف {c.file} · {c.type || "بدون نوع"} · {c.teeth} أسنان · {c.shade || "بدون لون"}
+            </div>
+
+            <div style={smallText}>
+              📞 {c.phone || "لا يوجد جوال"} · التواصل: {c.contact || "لم يتم التواصل"}
+            </div>
           </div>
 
           <div style={{ textAlign: "left" }}>
-            <div style={statusBadge(c.status)}>{c.status}</div>
+            <div style={statusBadge(autoStatus)}>{autoStatus}</div>
+
             <div style={{ fontSize: 11, color: d < 0 ? "#dc2626" : "#6b7280", marginTop: 5, fontWeight: 900 }}>
               {timeText}
             </div>
-            <div style={{ fontSize: 11, color: "#9ca3af" }}>التسليم: {c.eta || "-"}</div>
+
+            <div style={{ fontSize: 11, color: "#9ca3af" }}>
+              التسليم: {c.eta || "-"}
+            </div>
           </div>
         </div>
 
@@ -232,7 +245,7 @@ function CaseCard({ c, onUpdate, onDelete }) {
 
         <div style={miniBadgesRow}>
           <span style={miniBadge}>التواصل: {c.contact || "لم يتم التواصل"}</span>
-          {hasNotes && <span style={miniBadgeWarn}>يوجد ملاحظات</span>}
+          {hasAnyNote(c) && <span style={miniBadgeWarn}>يوجد ملاحظات</span>}
           {missing && <span style={miniBadgeWarn}>بيانات ناقصة</span>}
         </div>
 
@@ -244,27 +257,28 @@ function CaseCard({ c, onUpdate, onDelete }) {
       {open && (
         <div style={expanded}>
           <div style={sectionTitle}>تغيير المرحلة</div>
+
           <div style={grid2}>
             {STAGES.map((s, i) => (
-              <button key={s} onClick={() => onUpdate(c.id, { stage: i })} style={c.stage === i ? activeBtn : lightBtn}>
-                {s}
-              </button>
-            ))}
-          </div>
-
-          <div style={sectionTitle}>الحالة</div>
-          <div style={grid3}>
-            {STATUSES.map((s) => (
-              <button key={s} onClick={() => onUpdate(c.id, { status: s })} style={c.status === s ? activeBtn : lightBtn}>
+              <button
+                key={s}
+                onClick={() => onUpdate(c.id, { stage: i })}
+                style={c.stage === i ? activeBtn : lightBtn}
+              >
                 {s}
               </button>
             ))}
           </div>
 
           <div style={sectionTitle}>حالة التواصل</div>
+
           <div style={grid2}>
             {CONTACTS.map((s) => (
-              <button key={s} onClick={() => onUpdate(c.id, { contact: s })} style={c.contact === s ? activeBtn : lightBtn}>
+              <button
+                key={s}
+                onClick={() => onUpdate(c.id, { contact: s })}
+                style={c.contact === s ? activeBtn : lightBtn}
+              >
                 {s}
               </button>
             ))}
@@ -272,33 +286,34 @@ function CaseCard({ c, onUpdate, onDelete }) {
 
           {whatsappLink && (
             <a href={whatsappLink} target="_blank" rel="noreferrer" style={whatsappBtn}>
-              فتح واتساب
+              فتح واتساب برسالة جاهزة
             </a>
           )}
 
-          <button onClick={() => setEditMode(!editMode)} style={lightWide}>
-            {editMode ? "إغلاق تعديل البيانات" : "تعديل بيانات الحالة"}
+          <textarea
+            value={technote}
+            onChange={(e) => setTechnote(e.target.value)}
+            placeholder="ملاحظة الفني"
+            style={textarea}
+          />
+
+          <textarea
+            value={doctornote}
+            onChange={(e) => setDoctornote(e.target.value)}
+            placeholder="ملاحظة الطبيب"
+            style={textarea}
+          />
+
+          <textarea
+            value={notes}
+            onChange={(e) => setNotes(e.target.value)}
+            placeholder="ملاحظات المنسقة / داخلية"
+            style={textarea}
+          />
+
+          <button onClick={saveNotes} style={primaryWide}>
+            حفظ الملاحظات
           </button>
-
-          {editMode && (
-            <div style={editBox}>
-              <input style={input} placeholder="اسم المريض" value={edit.patient} onChange={(e) => setEdit({ ...edit, patient: e.target.value })} />
-              <input style={input} placeholder="الجوال" value={edit.phone} onChange={(e) => setEdit({ ...edit, phone: e.target.value })} />
-              <input style={input} placeholder="رقم الملف" value={edit.file} onChange={(e) => setEdit({ ...edit, file: e.target.value })} />
-              <input style={input} placeholder="عدد الأسنان" type="number" value={edit.teeth} onChange={(e) => setEdit({ ...edit, teeth: e.target.value })} />
-              <input style={input} placeholder="نوع التركيبة" value={edit.type} onChange={(e) => setEdit({ ...edit, type: e.target.value })} />
-              <input style={input} placeholder="اللون" value={edit.shade} onChange={(e) => setEdit({ ...edit, shade: e.target.value })} />
-              <input style={input} type="date" value={edit.eta} onChange={(e) => setEdit({ ...edit, eta: e.target.value })} />
-              <button onClick={saveBasicInfo} style={primaryWide}>حفظ تعديل البيانات</button>
-            </div>
-          )}
-
-          <textarea value={technote} onChange={(e) => setTechnote(e.target.value)} placeholder="ملاحظة الفني" style={textarea} />
-          <textarea value={doctornote} onChange={(e) => setDoctornote(e.target.value)} placeholder="ملاحظة الطبيب" style={textarea} />
-          <textarea value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="ملاحظات المنسقة / داخلية" style={textarea} />
-
-          <button onClick={saveNotes} style={primaryWide}>حفظ الملاحظات</button>
-          <button onClick={() => onDelete(c.id)} style={dangerWide}>حذف الحالة</button>
         </div>
       )}
     </div>
@@ -310,20 +325,23 @@ function StageBar({ stage }) {
     <div style={{ display: "flex", alignItems: "center", marginTop: 12 }}>
       {STAGES.map((_, i) => (
         <div key={i} style={{ display: "flex", alignItems: "center", flex: i < STAGES.length - 1 ? 1 : "none" }}>
-          <div style={{
-            width: 22,
-            height: 22,
-            borderRadius: "50%",
-            background: i <= stage ? "#1a1a2e" : "#e5e7eb",
-            color: i <= stage ? "#fff" : "#9ca3af",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            fontSize: 10,
-            fontWeight: 900,
-          }}>
+          <div
+            style={{
+              width: 22,
+              height: 22,
+              borderRadius: "50%",
+              background: i <= stage ? "#1a1a2e" : "#e5e7eb",
+              color: i <= stage ? "#fff" : "#9ca3af",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              fontSize: 10,
+              fontWeight: 900,
+            }}
+          >
             {i < stage ? "✓" : i + 1}
           </div>
+
           {i < STAGES.length - 1 && (
             <div style={{ flex: 1, height: 2, background: i < stage ? "#1a1a2e" : "#e5e7eb" }} />
           )}
@@ -335,13 +353,22 @@ function StageBar({ stage }) {
 
 function AddCaseModal({ onAdd, onClose }) {
   const [form, setForm] = useState({
-    patient: "", phone: "", file: "", teeth: "", type: "", shade: "", eta: "",
+    patient: "",
+    phone: "",
+    file: "",
+    teeth: "",
+    type: "",
+    shade: "",
+    eta: "",
   });
 
   const set = (k, v) => setForm((f) => ({ ...f, [k]: v }));
 
   const submit = () => {
-    if (!form.patient || !form.file) return alert("اكتب اسم المريض ورقم الملف");
+    if (!form.patient || !form.file) {
+      alert("اكتب اسم المريض ورقم الملف");
+      return;
+    }
 
     onAdd({
       id: Date.now(),
@@ -402,12 +429,10 @@ const filterBtn = { padding: "7px 14px", borderRadius: 20, border: "none", backg
 const activeFilter = { ...filterBtn, background: "#1a1a2e", color: "#fff" };
 const expanded = { marginTop: 14, borderTop: "1px solid #eee", paddingTop: 14 };
 const primaryWide = { width: "100%", background: "#6366f1", color: "#fff", border: "none", borderRadius: 10, padding: 11, marginTop: 8, fontWeight: 900, cursor: "pointer" };
-const dangerWide = { width: "100%", background: "#ef4444", color: "#fff", border: "none", borderRadius: 10, padding: 11, marginTop: 8, fontWeight: 900, cursor: "pointer" };
 const lightWide = { width: "100%", background: "#fff", color: "#374151", border: "1px solid #e5e7eb", borderRadius: 10, padding: 11, marginTop: 8, fontWeight: 800, cursor: "pointer" };
 const lightBtn = { padding: 9, borderRadius: 10, border: "none", background: "#f3f4f6", color: "#374151", fontWeight: 800, cursor: "pointer" };
 const activeBtn = { padding: 9, borderRadius: 10, border: "none", background: "#1a1a2e", color: "#fff", fontWeight: 900, cursor: "pointer" };
 const grid2 = { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 };
-const grid3 = { display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 };
 const sectionTitle = { fontSize: 12, fontWeight: 900, margin: "12px 0 8px" };
 const textarea = { width: "100%", minHeight: 65, marginTop: 8, padding: 10, borderRadius: 10, border: "1px solid #e5e7eb", resize: "vertical", direction: "rtl", boxSizing: "border-box" };
 const input = { width: "100%", padding: "10px 12px", borderRadius: 10, border: "1px solid #e5e7eb", fontSize: 13, background: "#fafafa", direction: "rtl", boxSizing: "border-box", marginBottom: 8 };
@@ -415,7 +440,6 @@ const overlay = { position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", di
 const modal = { background: "#fff", borderRadius: 20, padding: 24, width: 340, direction: "rtl" };
 const noteBox = { marginTop: 8, padding: "8px 12px", borderRadius: 10, background: "#f8fafc", border: "1px solid #e5e7eb", fontSize: 12, color: "#374151" };
 const whatsappBtn = { display: "block", textAlign: "center", textDecoration: "none", background: "#22c55e", color: "#fff", borderRadius: 10, padding: 11, marginTop: 10, fontWeight: 900 };
-const editBox = { marginTop: 10, padding: 12, borderRadius: 12, background: "#f8fafc", border: "1px solid #e5e7eb" };
 const miniBadgesRow = { display: "flex", gap: 6, flexWrap: "wrap", marginTop: 10 };
 const miniBadge = { fontSize: 11, background: "#eef2ff", color: "#3730a3", padding: "4px 8px", borderRadius: 20, fontWeight: 800 };
 const miniBadgeWarn = { fontSize: 11, background: "#fff7ed", color: "#9a3412", padding: "4px 8px", borderRadius: 20, fontWeight: 800 };
@@ -424,10 +448,18 @@ function statusBadge(status) {
   const map = {
     "تمام ✅": { bg: "#d1fae5", color: "#065f46" },
     "ملاحظة ⚠️": { bg: "#fef3c7", color: "#92400e" },
-    "مشكلة ❌": { bg: "#fee2e2", color: "#991b1b" },
   };
+
   const s = map[status] || map["تمام ✅"];
-  return { fontSize: 11, fontWeight: 900, padding: "4px 10px", borderRadius: 20, background: s.bg, color: s.color };
+
+  return {
+    fontSize: 11,
+    fontWeight: 900,
+    padding: "4px 10px",
+    borderRadius: 20,
+    background: s.bg,
+    color: s.color,
+  };
 }
 
 export default App;
