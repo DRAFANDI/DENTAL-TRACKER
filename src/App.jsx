@@ -8,10 +8,18 @@ const supabase = createClient(
 
 const STAGES = ["استلام المقاس", "عند المعمل", "قيد التصنيع", "جاهز للتسليم", "تم التسليم"];
 const STATUSES = ["تمام ✅", "ملاحظة ⚠️", "مشكلة ❌"];
+const CONTACTS = ["لم يتم التواصل", "تم التواصل", "تم حجز موعد التسليم", "لم يرد"];
+
+function daysLeft(eta) {
+  if (!eta) return null;
+  return Math.ceil((new Date(eta) - new Date()) / 86400000);
+}
 
 function App() {
   const [cases, setCases] = useState([]);
   const [showAdd, setShowAdd] = useState(false);
+  const [filter, setFilter] = useState("الكل");
+  const [search, setSearch] = useState("");
 
   const loadCases = async () => {
     const { data, error } = await supabase.from("cases").select("*").order("id", { ascending: false });
@@ -19,58 +27,104 @@ function App() {
     else setCases(data || []);
   };
 
-  useEffect(() => {
-    loadCases();
-  }, []);
+  useEffect(() => { loadCases(); }, []);
 
   const addCase = async (c) => {
     const { data, error } = await supabase.from("cases").insert([c]).select().single();
-    if (error) {
-      console.error(error);
-      alert("فشل حفظ الحالة");
-      return;
-    }
+    if (error) return alert("فشل حفظ الحالة");
     setCases((old) => [data, ...old]);
   };
 
   const updateCase = async (id, patch) => {
     const { error } = await supabase.from("cases").update(patch).eq("id", id);
-    if (error) {
-      console.error(error);
-      alert("فشل التعديل");
-      return;
-    }
+    if (error) return alert("فشل التعديل");
     setCases((old) => old.map((c) => (c.id === id ? { ...c, ...patch } : c)));
   };
 
   const deleteCase = async (id) => {
     if (!confirm("هل تريد حذف هذه الحالة؟")) return;
     const { error } = await supabase.from("cases").delete().eq("id", id);
-    if (error) {
-      console.error(error);
-      alert("فشل الحذف");
-      return;
-    }
+    if (error) return alert("فشل الحذف");
     setCases((old) => old.filter((c) => c.id !== id));
   };
+
+  const stats = {
+    lab: cases.filter((c) => c.stage === 1 || c.stage === 2).length,
+    ready: cases.filter((c) => c.stage === 3).length,
+    delivered: cases.filter((c) => c.stage === 4).length,
+    today: cases.filter((c) => {
+      const d = daysLeft(c.eta);
+      return d !== null && d >= 0 && d <= 2 && c.stage !== 4;
+    }).length,
+    late: cases.filter((c) => {
+      const d = daysLeft(c.eta);
+      return d !== null && d < 0 && c.stage !== 4;
+    }).length,
+  };
+
+  const filteredCases = cases.filter((c) => {
+    const q = search.trim().toLowerCase();
+    const matchSearch =
+      !q ||
+      String(c.patient || "").toLowerCase().includes(q) ||
+      String(c.file || "").toLowerCase().includes(q) ||
+      String(c.phone || "").toLowerCase().includes(q);
+
+    if (!matchSearch) return false;
+
+    const d = daysLeft(c.eta);
+    if (filter === "داخل المعمل") return c.stage === 1 || c.stage === 2;
+    if (filter === "جاهز للتسليم") return c.stage === 3;
+    if (filter === "تم التسليم") return c.stage === 4;
+    if (filter === "متأخر") return d !== null && d < 0 && c.stage !== 4;
+    if (filter === "تسليم قريب") return d !== null && d >= 0 && d <= 2 && c.stage !== 4;
+    if (filter === "مشكلة") return c.status === "مشكلة ❌";
+    if (filter === "ملاحظة") return c.status === "ملاحظة ⚠️";
+    return true;
+  });
 
   return (
     <div style={{ minHeight: "100vh", background: "#f8f8fc", direction: "rtl", fontFamily: "Segoe UI, Tahoma" }}>
       <header style={{ background: "#1a1a2e", color: "#fff", padding: 20 }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12 }}>
           <div>
-            <div style={{ fontSize: 20, fontWeight: 800 }}>🦷 متابعة المعمل</div>
-            <div style={{ fontSize: 12, opacity: 0.75 }}>{cases.length} حالة</div>
+            <div style={{ fontSize: 20, fontWeight: 900 }}>🦷 متابعة المعمل</div>
+            <div style={{ fontSize: 12, opacity: 0.75 }}>{cases.length} حالة نشطة</div>
           </div>
           <button onClick={() => setShowAdd(true)} style={primaryBtn}>+ حالة جديدة</button>
         </div>
+
+        <div style={statsGrid}>
+          <Stat label="داخل المعمل" value={stats.lab} />
+          <Stat label="جاهز للتسليم" value={stats.ready} />
+          <Stat label="تسليم قريب" value={stats.today} />
+          <Stat label="متأخر" value={stats.late} danger />
+          <Stat label="تم التسليم" value={stats.delivered} />
+        </div>
       </header>
 
-      <main style={{ padding: 16, display: "flex", flexDirection: "column", gap: 12 }}>
-        {cases.length === 0 ? (
+      <div style={{ padding: 16 }}>
+        <input
+          style={searchInput}
+          placeholder="بحث باسم المريض أو رقم الملف أو الجوال..."
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+        />
+
+        <div style={{ display: "flex", gap: 8, overflowX: "auto", marginTop: 10, paddingBottom: 4 }}>
+          {["الكل", "داخل المعمل", "جاهز للتسليم", "تسليم قريب", "متأخر", "تم التسليم", "ملاحظة", "مشكلة"].map((f) => (
+            <button key={f} onClick={() => setFilter(f)} style={filter === f ? activeFilter : filterBtn}>
+              {f}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <main style={{ padding: "0 16px 32px", display: "flex", flexDirection: "column", gap: 12 }}>
+        {filteredCases.length === 0 ? (
           <div style={{ textAlign: "center", color: "#999", marginTop: 40 }}>لا توجد حالات</div>
         ) : (
-          cases.map((c) => (
+          filteredCases.map((c) => (
             <CaseCard key={c.id} c={c} onUpdate={updateCase} onDelete={deleteCase} />
           ))
         )}
@@ -81,35 +135,65 @@ function App() {
   );
 }
 
+function Stat({ label, value, danger }) {
+  return (
+    <div style={{ background: "rgba(255,255,255,0.07)", borderRadius: 12, padding: 10, textAlign: "center" }}>
+      <div style={{ fontSize: 22, fontWeight: 900, color: danger ? "#f87171" : "#a5b4fc" }}>{value}</div>
+      <div style={{ fontSize: 10, color: "#cbd5e1" }}>{label}</div>
+    </div>
+  );
+}
+
 function CaseCard({ c, onUpdate, onDelete }) {
   const [open, setOpen] = useState(false);
   const [notes, setNotes] = useState(c.notes || "");
   const [technote, setTechnote] = useState(c.technote || "");
+  const [doctornote, setDoctornote] = useState(c.doctornote || "");
 
-  const saveNotes = () => {
-    onUpdate(c.id, { notes, technote });
-  };
+  const d = daysLeft(c.eta);
+  const timeText =
+    d === null ? "بدون تاريخ تسليم" :
+    d < 0 ? `متأخر ${Math.abs(d)} يوم` :
+    d === 0 ? "تسليم اليوم" :
+    `متبقي ${d} يوم`;
+
+  const saveNotes = () => onUpdate(c.id, { notes, technote, doctornote });
+
+  const whatsappLink = c.phone ? `https://wa.me/${String(c.phone).replace(/\D/g, "")}` : null;
 
   return (
     <div style={card}>
       <div onClick={() => setOpen(!open)} style={{ cursor: "pointer" }}>
         <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
           <div>
-            <div style={{ fontWeight: 800, fontSize: 16 }}>{c.patient}</div>
+            <div style={{ fontWeight: 900, fontSize: 16 }}>{c.patient}</div>
             <div style={{ fontSize: 12, color: "#6b7280", marginTop: 4 }}>
-              {c.file} · {c.type} · {c.teeth} أسنان · {c.shade}
+              ملف {c.file} · {c.type} · {c.teeth} أسنان · {c.shade}
+            </div>
+            <div style={{ fontSize: 12, color: "#6b7280", marginTop: 4 }}>
+              جوال: {c.phone || "غير مدخل"} · التواصل: {c.contact || "لم يتم التواصل"}
             </div>
           </div>
           <div style={{ textAlign: "left" }}>
             <div style={statusBadge(c.status)}>{c.status}</div>
-            <div style={{ fontSize: 11, color: "#9ca3af", marginTop: 5 }}>{c.eta}</div>
+            <div style={{ fontSize: 11, color: d < 0 ? "#dc2626" : "#6b7280", marginTop: 5, fontWeight: 800 }}>
+              {timeText}
+            </div>
+            <div style={{ fontSize: 11, color: "#9ca3af" }}>التسليم المتوقع: {c.eta || "-"}</div>
           </div>
         </div>
 
         <StageBar stage={c.stage || 0} />
 
+        {(!c.eta || !c.shade || !c.teeth || !c.phone) && (
+          <div style={{ ...noteBox, background: "#fff7ed", color: "#9a3412" }}>
+            ⚠️ بيانات ناقصة
+          </div>
+        )}
+
         {c.technote && <div style={noteBox}>💬 ملاحظة الفني: {c.technote}</div>}
-        {c.notes && <div style={noteBox}>📝 ملاحظات: {c.notes}</div>}
+        {c.doctornote && <div style={noteBox}>🦷 ملاحظة الطبيب: {c.doctornote}</div>}
+        {c.notes && <div style={noteBox}>📝 ملاحظات داخلية: {c.notes}</div>}
       </div>
 
       {open && (
@@ -132,7 +216,23 @@ function CaseCard({ c, onUpdate, onDelete }) {
             ))}
           </div>
 
+          <div style={sectionTitle}>حالة التواصل</div>
+          <div style={grid2}>
+            {CONTACTS.map((s) => (
+              <button key={s} onClick={() => onUpdate(c.id, { contact: s })} style={c.contact === s ? activeBtn : lightBtn}>
+                {s}
+              </button>
+            ))}
+          </div>
+
+          {whatsappLink && (
+            <a href={whatsappLink} target="_blank" style={whatsappBtn}>
+              فتح واتساب
+            </a>
+          )}
+
           <textarea value={technote} onChange={(e) => setTechnote(e.target.value)} placeholder="ملاحظة الفني" style={textarea} />
+          <textarea value={doctornote} onChange={(e) => setDoctornote(e.target.value)} placeholder="ملاحظة الطبيب" style={textarea} />
           <textarea value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="ملاحظات داخلية" style={textarea} />
 
           <button onClick={saveNotes} style={primaryWide}>حفظ الملاحظات</button>
@@ -149,22 +249,15 @@ function StageBar({ stage }) {
       {STAGES.map((_, i) => (
         <div key={i} style={{ display: "flex", alignItems: "center", flex: i < STAGES.length - 1 ? 1 : "none" }}>
           <div style={{
-            width: 22,
-            height: 22,
-            borderRadius: "50%",
+            width: 22, height: 22, borderRadius: "50%",
             background: i <= stage ? "#1a1a2e" : "#e5e7eb",
             color: i <= stage ? "#fff" : "#9ca3af",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            fontSize: 10,
-            fontWeight: 800
+            display: "flex", alignItems: "center", justifyContent: "center",
+            fontSize: 10, fontWeight: 900
           }}>
             {i < stage ? "✓" : i + 1}
           </div>
-          {i < STAGES.length - 1 && (
-            <div style={{ flex: 1, height: 2, background: i < stage ? "#1a1a2e" : "#e5e7eb" }} />
-          )}
+          {i < STAGES.length - 1 && <div style={{ flex: 1, height: 2, background: i < stage ? "#1a1a2e" : "#e5e7eb" }} />}
         </div>
       ))}
     </div>
@@ -173,12 +266,7 @@ function StageBar({ stage }) {
 
 function AddCaseModal({ onAdd, onClose }) {
   const [form, setForm] = useState({
-    patient: "",
-    file: "",
-    teeth: "",
-    type: "",
-    shade: "",
-    eta: "",
+    patient: "", phone: "", file: "", teeth: "", type: "", shade: "", eta: "",
   });
 
   const set = (k, v) => setForm((f) => ({ ...f, [k]: v }));
@@ -189,6 +277,7 @@ function AddCaseModal({ onAdd, onClose }) {
     onAdd({
       id: Date.now(),
       patient: form.patient,
+      phone: form.phone,
       file: form.file,
       teeth: Number(form.teeth) || 1,
       type: form.type,
@@ -197,7 +286,9 @@ function AddCaseModal({ onAdd, onClose }) {
       sentdate: new Date().toISOString().split("T")[0],
       stage: 0,
       technote: "",
+      doctornote: "",
       status: "تمام ✅",
+      contact: "لم يتم التواصل",
       notes: "",
     });
 
@@ -208,8 +299,8 @@ function AddCaseModal({ onAdd, onClose }) {
     <div style={overlay} onClick={onClose}>
       <div style={modal} onClick={(e) => e.stopPropagation()}>
         <h3 style={{ marginTop: 0 }}>إضافة حالة جديدة</h3>
-
         <input style={input} placeholder="اسم المريض" value={form.patient} onChange={(e) => set("patient", e.target.value)} />
+        <input style={input} placeholder="رقم الجوال مثل 9665xxxxxxxx" value={form.phone} onChange={(e) => set("phone", e.target.value)} />
         <input style={input} placeholder="رقم الملف" value={form.file} onChange={(e) => set("file", e.target.value)} />
         <input style={input} placeholder="عدد الأسنان" type="number" value={form.teeth} onChange={(e) => set("teeth", e.target.value)} />
         <input style={input} placeholder="نوع التركيبة" value={form.type} onChange={(e) => set("type", e.target.value)} />
@@ -225,136 +316,26 @@ function AddCaseModal({ onAdd, onClose }) {
   );
 }
 
-const card = {
-  background: "#fff",
-  borderRadius: 16,
-  border: "1px solid #f0f0f8",
-  padding: "18px 20px",
-  boxShadow: "0 2px 8px rgba(0,0,0,0.04)",
-};
-
-const primaryBtn = {
-  background: "#6366f1",
-  color: "#fff",
-  border: "none",
-  borderRadius: 12,
-  padding: "9px 16px",
-  fontWeight: 700,
-  cursor: "pointer",
-};
-
-const primaryWide = {
-  width: "100%",
-  background: "#6366f1",
-  color: "#fff",
-  border: "none",
-  borderRadius: 10,
-  padding: 11,
-  marginTop: 8,
-  fontWeight: 800,
-  cursor: "pointer",
-};
-
-const dangerWide = {
-  width: "100%",
-  background: "#ef4444",
-  color: "#fff",
-  border: "none",
-  borderRadius: 10,
-  padding: 11,
-  marginTop: 8,
-  fontWeight: 800,
-  cursor: "pointer",
-};
-
-const lightWide = {
-  width: "100%",
-  background: "#fff",
-  color: "#374151",
-  border: "1px solid #e5e7eb",
-  borderRadius: 10,
-  padding: 11,
-  marginTop: 8,
-  fontWeight: 700,
-  cursor: "pointer",
-};
-
-const lightBtn = {
-  padding: 9,
-  borderRadius: 10,
-  border: "none",
-  background: "#f3f4f6",
-  color: "#374151",
-  fontWeight: 700,
-  cursor: "pointer",
-};
-
-const activeBtn = {
-  padding: 9,
-  borderRadius: 10,
-  border: "none",
-  background: "#1a1a2e",
-  color: "#fff",
-  fontWeight: 800,
-  cursor: "pointer",
-};
-
+const statsGrid = { display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 8, marginTop: 14 };
+const card = { background: "#fff", borderRadius: 16, border: "1px solid #f0f0f8", padding: "18px 20px", boxShadow: "0 2px 8px rgba(0,0,0,0.04)" };
+const primaryBtn = { background: "#6366f1", color: "#fff", border: "none", borderRadius: 12, padding: "9px 16px", fontWeight: 800, cursor: "pointer" };
+const searchInput = { width: "100%", padding: 12, borderRadius: 12, border: "1px solid #e5e7eb", boxSizing: "border-box", direction: "rtl" };
+const filterBtn = { padding: "7px 14px", borderRadius: 20, border: "none", background: "#fff", color: "#374151", fontWeight: 700, whiteSpace: "nowrap", cursor: "pointer" };
+const activeFilter = { ...filterBtn, background: "#1a1a2e", color: "#fff" };
+const primaryWide = { width: "100%", background: "#6366f1", color: "#fff", border: "none", borderRadius: 10, padding: 11, marginTop: 8, fontWeight: 900, cursor: "pointer" };
+const dangerWide = { width: "100%", background: "#ef4444", color: "#fff", border: "none", borderRadius: 10, padding: 11, marginTop: 8, fontWeight: 900, cursor: "pointer" };
+const lightWide = { width: "100%", background: "#fff", color: "#374151", border: "1px solid #e5e7eb", borderRadius: 10, padding: 11, marginTop: 8, fontWeight: 800, cursor: "pointer" };
+const lightBtn = { padding: 9, borderRadius: 10, border: "none", background: "#f3f4f6", color: "#374151", fontWeight: 800, cursor: "pointer" };
+const activeBtn = { padding: 9, borderRadius: 10, border: "none", background: "#1a1a2e", color: "#fff", fontWeight: 900, cursor: "pointer" };
 const grid2 = { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 };
 const grid3 = { display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 };
-
-const sectionTitle = { fontSize: 12, fontWeight: 800, margin: "12px 0 8px" };
-
-const textarea = {
-  width: "100%",
-  minHeight: 65,
-  marginTop: 8,
-  padding: 10,
-  borderRadius: 10,
-  border: "1px solid #e5e7eb",
-  resize: "vertical",
-  direction: "rtl",
-  boxSizing: "border-box",
-};
-
-const input = {
-  width: "100%",
-  padding: "10px 12px",
-  borderRadius: 10,
-  border: "1px solid #e5e7eb",
-  fontSize: 13,
-  background: "#fafafa",
-  direction: "rtl",
-  boxSizing: "border-box",
-  marginBottom: 8,
-};
-
-const overlay = {
-  position: "fixed",
-  inset: 0,
-  background: "rgba(0,0,0,0.4)",
-  display: "flex",
-  alignItems: "center",
-  justifyContent: "center",
-  zIndex: 100,
-};
-
-const modal = {
-  background: "#fff",
-  borderRadius: 20,
-  padding: 24,
-  width: 340,
-  direction: "rtl",
-};
-
-const noteBox = {
-  marginTop: 8,
-  padding: "8px 12px",
-  borderRadius: 10,
-  background: "#f8fafc",
-  border: "1px solid #e5e7eb",
-  fontSize: 12,
-  color: "#374151",
-};
+const sectionTitle = { fontSize: 12, fontWeight: 900, margin: "12px 0 8px" };
+const textarea = { width: "100%", minHeight: 65, marginTop: 8, padding: 10, borderRadius: 10, border: "1px solid #e5e7eb", resize: "vertical", direction: "rtl", boxSizing: "border-box" };
+const input = { width: "100%", padding: "10px 12px", borderRadius: 10, border: "1px solid #e5e7eb", fontSize: 13, background: "#fafafa", direction: "rtl", boxSizing: "border-box", marginBottom: 8 };
+const overlay = { position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100 };
+const modal = { background: "#fff", borderRadius: 20, padding: 24, width: 340, direction: "rtl" };
+const noteBox = { marginTop: 8, padding: "8px 12px", borderRadius: 10, background: "#f8fafc", border: "1px solid #e5e7eb", fontSize: 12, color: "#374151" };
+const whatsappBtn = { display: "block", textAlign: "center", textDecoration: "none", background: "#22c55e", color: "#fff", borderRadius: 10, padding: 11, marginTop: 10, fontWeight: 900 };
 
 function statusBadge(status) {
   const map = {
@@ -362,17 +343,8 @@ function statusBadge(status) {
     "ملاحظة ⚠️": { bg: "#fef3c7", color: "#92400e" },
     "مشكلة ❌": { bg: "#fee2e2", color: "#991b1b" },
   };
-
   const s = map[status] || map["تمام ✅"];
-
-  return {
-    fontSize: 11,
-    fontWeight: 800,
-    padding: "4px 10px",
-    borderRadius: 20,
-    background: s.bg,
-    color: s.color,
-  };
+  return { fontSize: 11, fontWeight: 900, padding: "4px 10px", borderRadius: 20, background: s.bg, color: s.color };
 }
 
 export default App;
