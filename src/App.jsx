@@ -48,25 +48,21 @@ function App() {
 
   const addCase = async (c) => {
     const { data, error } = await supabase.from("cases").insert([c]).select().single();
-
     if (error) {
       console.error(error);
       alert("فشل حفظ الحالة");
       return;
     }
-
     setCases((old) => [data, ...old]);
   };
 
   const updateCase = async (id, patch) => {
     const { error } = await supabase.from("cases").update(patch).eq("id", id);
-
     if (error) {
       console.error(error);
       alert("فشل التعديل");
       return;
     }
-
     setCases((old) => old.map((c) => (c.id === id ? { ...c, ...patch } : c)));
   };
 
@@ -80,6 +76,15 @@ function App() {
       const d = daysLeft(c.eta);
       return d !== null && d < 0 && c.stage !== 4;
     }).length,
+    today: cases.filter((c) => {
+      const d = daysLeft(c.eta);
+      return d === 0 && c.stage !== 4;
+    }).length,
+    soon: cases.filter((c) => {
+      const d = daysLeft(c.eta);
+      return d !== null && d >= 0 && d <= 2 && c.stage !== 4;
+    }).length,
+    readyNoContact: cases.filter((c) => c.stage === 3 && (!c.contact || c.contact === "لم يتم التواصل" || c.contact === "لم يرد")).length,
   };
 
   const filteredCases = cases.filter((c) => {
@@ -99,9 +104,11 @@ function App() {
     if (filter === "جاهز للتسليم") return c.stage === 3;
     if (filter === "تم التسليم") return c.stage === 4;
     if (filter === "متأخر") return d !== null && d < 0 && c.stage !== 4;
+    if (filter === "تسليم اليوم") return d === 0 && c.stage !== 4;
     if (filter === "تسليم قريب") return d !== null && d >= 0 && d <= 2 && c.stage !== 4;
     if (filter === "ملاحظات") return hasAnyNote(c);
     if (filter === "لم يتم التواصل") return !c.contact || c.contact === "لم يتم التواصل" || c.contact === "لم يرد";
+    if (filter === "جاهز ولم يتم التواصل") return c.stage === 3 && (!c.contact || c.contact === "لم يتم التواصل" || c.contact === "لم يرد");
 
     return true;
   });
@@ -131,6 +138,8 @@ function App() {
       </header>
 
       <div style={{ padding: 16 }}>
+        <NotificationCenter stats={stats} setFilter={setFilter} />
+
         <input
           style={searchInput}
           placeholder="بحث باسم المريض أو رقم الملف أو الجوال..."
@@ -139,7 +148,7 @@ function App() {
         />
 
         <div style={filtersRow}>
-          {["الكل", "داخل المعمل", "جاهز للتسليم", "تسليم قريب", "متأخر", "تم التسليم", "ملاحظات", "لم يتم التواصل"].map((f) => (
+          {["الكل", "داخل المعمل", "جاهز للتسليم", "تسليم اليوم", "تسليم قريب", "متأخر", "تم التسليم", "ملاحظات", "لم يتم التواصل", "جاهز ولم يتم التواصل"].map((f) => (
             <button key={f} onClick={() => setFilter(f)} style={filter === f ? activeFilter : filterBtn}>
               {f}
             </button>
@@ -158,6 +167,41 @@ function App() {
       </main>
 
       {showAdd && <AddCaseModal onAdd={addCase} onClose={() => setShowAdd(false)} />}
+    </div>
+  );
+}
+
+function NotificationCenter({ stats, setFilter }) {
+  const alerts = [
+    { label: "حالات متأخرة", value: stats.late, filter: "متأخر", danger: true },
+    { label: "تسليم اليوم", value: stats.today, filter: "تسليم اليوم" },
+    { label: "تسليم خلال يومين", value: stats.soon, filter: "تسليم قريب" },
+    { label: "فيها ملاحظات", value: stats.notes, filter: "ملاحظات" },
+    { label: "جاهزة ولم يتم التواصل", value: stats.readyNoContact, filter: "جاهز ولم يتم التواصل", danger: true },
+  ].filter((a) => a.value > 0);
+
+  if (alerts.length === 0) {
+    return (
+      <div style={alertBox}>
+        ✅ لا توجد تنبيهات مهمة حالياً
+      </div>
+    );
+  }
+
+  return (
+    <div style={alertBox}>
+      <div style={{ fontWeight: 900, marginBottom: 8 }}>🔔 تنبيهات اليوم</div>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+        {alerts.map((a) => (
+          <button
+            key={a.label}
+            onClick={() => setFilter(a.filter)}
+            style={a.danger ? alertBtnDanger : alertBtn}
+          >
+            {a.value} {a.label}
+          </button>
+        ))}
+      </div>
     </div>
   );
 }
@@ -290,26 +334,9 @@ function CaseCard({ c, onUpdate }) {
             </a>
           )}
 
-          <textarea
-            value={technote}
-            onChange={(e) => setTechnote(e.target.value)}
-            placeholder="ملاحظة الفني"
-            style={textarea}
-          />
-
-          <textarea
-            value={doctornote}
-            onChange={(e) => setDoctornote(e.target.value)}
-            placeholder="ملاحظة الطبيب"
-            style={textarea}
-          />
-
-          <textarea
-            value={notes}
-            onChange={(e) => setNotes(e.target.value)}
-            placeholder="ملاحظات المنسقة / داخلية"
-            style={textarea}
-          />
+          <textarea value={technote} onChange={(e) => setTechnote(e.target.value)} placeholder="ملاحظة الفني" style={textarea} />
+          <textarea value={doctornote} onChange={(e) => setDoctornote(e.target.value)} placeholder="ملاحظة الطبيب" style={textarea} />
+          <textarea value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="ملاحظات المنسقة / داخلية" style={textarea} />
 
           <button onClick={saveNotes} style={primaryWide}>
             حفظ الملاحظات
@@ -443,6 +470,9 @@ const whatsappBtn = { display: "block", textAlign: "center", textDecoration: "no
 const miniBadgesRow = { display: "flex", gap: 6, flexWrap: "wrap", marginTop: 10 };
 const miniBadge = { fontSize: 11, background: "#eef2ff", color: "#3730a3", padding: "4px 8px", borderRadius: 20, fontWeight: 800 };
 const miniBadgeWarn = { fontSize: 11, background: "#fff7ed", color: "#9a3412", padding: "4px 8px", borderRadius: 20, fontWeight: 800 };
+const alertBox = { background: "#fff", border: "1px solid #e5e7eb", borderRadius: 16, padding: 14, marginBottom: 12, boxShadow: "0 2px 8px rgba(0,0,0,0.04)" };
+const alertBtn = { border: "none", background: "#eef2ff", color: "#3730a3", borderRadius: 20, padding: "7px 12px", fontWeight: 900, cursor: "pointer" };
+const alertBtnDanger = { ...alertBtn, background: "#fee2e2", color: "#991b1b" };
 
 function statusBadge(status) {
   const map = {
