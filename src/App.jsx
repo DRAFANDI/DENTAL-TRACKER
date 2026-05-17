@@ -11,7 +11,14 @@ const CONTACTS = ["لم يتم التواصل", "تم التواصل", "تم ح�
 
 function daysLeft(eta) {
   if (!eta) return null;
-  return Math.ceil((new Date(eta) - new Date()) / 86400000);
+
+  const today = new Date();
+  const target = new Date(eta + "T00:00:00");
+
+  const todayDate = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+  const targetDate = new Date(target.getFullYear(), target.getMonth(), target.getDate());
+
+  return Math.round((targetDate - todayDate) / 86400000);
 }
 
 function hasAnyNote(c) {
@@ -24,6 +31,10 @@ function hasAnyNote(c) {
 
 function getAutoStatus(c) {
   return hasAnyNote(c) ? "ملاحظة ⚠️" : "تمام ✅";
+}
+
+function needsContact(c) {
+  return !c.contact || c.contact === "لم يتم التواصل" || c.contact === "لم يرد";
 }
 
 function App() {
@@ -48,22 +59,41 @@ function App() {
 
   const addCase = async (c) => {
     const { data, error } = await supabase.from("cases").insert([c]).select().single();
+
     if (error) {
       console.error(error);
       alert("فشل حفظ الحالة");
       return;
     }
+
     setCases((old) => [data, ...old]);
   };
 
   const updateCase = async (id, patch) => {
     const { error } = await supabase.from("cases").update(patch).eq("id", id);
+
     if (error) {
       console.error(error);
       alert("فشل التعديل");
       return;
     }
+
     setCases((old) => old.map((c) => (c.id === id ? { ...c, ...patch } : c)));
+  };
+
+  const deleteCase = async (id) => {
+    const ok = confirm("⚠️ هل أنت متأكد من حذف هذه الحالة؟ لا يمكن التراجع عن الحذف.");
+    if (!ok) return;
+
+    const { error } = await supabase.from("cases").delete().eq("id", id);
+
+    if (error) {
+      console.error(error);
+      alert("فشل حذف الحالة");
+      return;
+    }
+
+    setCases((old) => old.filter((c) => c.id !== id));
   };
 
   const stats = {
@@ -71,7 +101,7 @@ function App() {
     ready: cases.filter((c) => c.stage === 3).length,
     delivered: cases.filter((c) => c.stage === 4).length,
     notes: cases.filter(hasAnyNote).length,
-    noContact: cases.filter((c) => !c.contact || c.contact === "لم يتم التواصل" || c.contact === "لم يرد").length,
+    noContact: cases.filter(needsContact).length,
     late: cases.filter((c) => {
       const d = daysLeft(c.eta);
       return d !== null && d < 0 && c.stage !== 4;
@@ -84,7 +114,7 @@ function App() {
       const d = daysLeft(c.eta);
       return d !== null && d >= 0 && d <= 2 && c.stage !== 4;
     }).length,
-    readyNoContact: cases.filter((c) => c.stage === 3 && (!c.contact || c.contact === "لم يتم التواصل" || c.contact === "لم يرد")).length,
+    readyNoContact: cases.filter((c) => c.stage === 3 && needsContact(c)).length,
   };
 
   const filteredCases = cases.filter((c) => {
@@ -107,8 +137,8 @@ function App() {
     if (filter === "تسليم اليوم") return d === 0 && c.stage !== 4;
     if (filter === "تسليم قريب") return d !== null && d >= 0 && d <= 2 && c.stage !== 4;
     if (filter === "ملاحظات") return hasAnyNote(c);
-    if (filter === "لم يتم التواصل") return !c.contact || c.contact === "لم يتم التواصل" || c.contact === "لم يرد";
-    if (filter === "جاهز ولم يتم التواصل") return c.stage === 3 && (!c.contact || c.contact === "لم يتم التواصل" || c.contact === "لم يرد");
+    if (filter === "لم يتم التواصل") return needsContact(c);
+    if (filter === "جاهز ولم يتم التواصل") return c.stage === 3 && needsContact(c);
 
     return true;
   });
@@ -161,7 +191,7 @@ function App() {
           <div style={{ textAlign: "center", color: "#999", marginTop: 40 }}>لا توجد حالات</div>
         ) : (
           filteredCases.map((c) => (
-            <CaseCard key={c.id} c={c} onUpdate={updateCase} />
+            <CaseCard key={c.id} c={c} onUpdate={updateCase} onDelete={deleteCase} />
           ))
         )}
       </main>
@@ -181,11 +211,7 @@ function NotificationCenter({ stats, setFilter }) {
   ].filter((a) => a.value > 0);
 
   if (alerts.length === 0) {
-    return (
-      <div style={alertBox}>
-        ✅ لا توجد تنبيهات مهمة حالياً
-      </div>
-    );
+    return <div style={alertBox}>✅ لا توجد تنبيهات مهمة حالياً</div>;
   }
 
   return (
@@ -217,9 +243,8 @@ function Stat({ label, value, danger }) {
   );
 }
 
-function CaseCard({ c, onUpdate }) {
+function CaseCard({ c, onUpdate, onDelete }) {
   const [open, setOpen] = useState(false);
-
   const [notes, setNotes] = useState(c.notes || "");
   const [technote, setTechnote] = useState(c.technote || "");
   const [doctornote, setDoctornote] = useState(c.doctornote || "");
@@ -233,6 +258,8 @@ function CaseCard({ c, onUpdate }) {
       ? `متأخر ${Math.abs(d)} يوم`
       : d === 0
       ? "تسليم اليوم"
+      : d === 1
+      ? "متبقي يوم"
       : `متبقي ${d} يوم`;
 
   const missing = !c.eta || !c.shade || !c.teeth || !c.phone;
@@ -243,6 +270,8 @@ function CaseCard({ c, onUpdate }) {
     `مرحباً ${c.patient || ""}، نود إبلاغك بخصوص تركيبتك / حالتك الخاصة برقم الملف ${c.file || ""}.`
   );
   const whatsappLink = cleanPhone ? `https://wa.me/${cleanPhone}?text=${whatsappMessage}` : null;
+
+  const priority = getPriority(c);
 
   const saveNotes = () => {
     const nextCase = { ...c, notes, technote, doctornote };
@@ -258,7 +287,11 @@ function CaseCard({ c, onUpdate }) {
 
   return (
     <div style={card}>
+      <div style={{ ...priorityBar, background: priority.color }} />
+
       <div onClick={() => setOpen(!open)} style={{ cursor: "pointer" }}>
+        {priority.text && <div style={{ ...priorityLabel, color: priority.color }}>{priority.text}</div>}
+
         <div style={cardTop}>
           <div>
             <div style={{ fontWeight: 900, fontSize: 16 }}>{c.patient}</div>
@@ -329,9 +362,18 @@ function CaseCard({ c, onUpdate }) {
           </div>
 
           {whatsappLink && (
-            <a href={whatsappLink} target="_blank" rel="noreferrer" style={whatsappBtn}>
-              فتح واتساب برسالة جاهزة
-            </a>
+            <>
+              <a href={whatsappLink} target="_blank" rel="noreferrer" style={whatsappBtn}>
+                فتح واتساب برسالة جاهزة
+              </a>
+
+              <button
+                onClick={() => onUpdate(c.id, { contact: "تم التواصل" })}
+                style={successWide}
+              >
+                تم التواصل
+              </button>
+            </>
           )}
 
           <textarea value={technote} onChange={(e) => setTechnote(e.target.value)} placeholder="ملاحظة الفني" style={textarea} />
@@ -341,10 +383,32 @@ function CaseCard({ c, onUpdate }) {
           <button onClick={saveNotes} style={primaryWide}>
             حفظ الملاحظات
           </button>
+
+          <button onClick={() => onDelete(c.id)} style={dangerWide}>
+            حذف الحالة
+          </button>
         </div>
       )}
     </div>
   );
+}
+
+function getPriority(c) {
+  const d = daysLeft(c.eta);
+
+  if (c.stage !== 4 && d !== null && d < 0) {
+    return { text: "متأخر", color: "#dc2626" };
+  }
+
+  if (c.stage !== 4 && d === 0) {
+    return { text: "تسليم اليوم", color: "#f59e0b" };
+  }
+
+  if (c.stage === 3 && needsContact(c)) {
+    return { text: "جاهز ولم يتم التواصل", color: "#ea580c" };
+  }
+
+  return { text: "", color: "transparent" };
 }
 
 function StageBar({ stage }) {
@@ -446,7 +510,9 @@ const headerTop = { display: "flex", justifyContent: "space-between", alignItems
 const statsGrid = { display: "grid", gridTemplateColumns: "repeat(6, 1fr)", gap: 8, marginTop: 14 };
 const statBox = { background: "rgba(255,255,255,0.07)", borderRadius: 12, padding: 10, textAlign: "center" };
 const main = { padding: "0 16px 32px", display: "flex", flexDirection: "column", gap: 12 };
-const card = { background: "#fff", borderRadius: 16, border: "1px solid #f0f0f8", padding: "18px 20px", boxShadow: "0 2px 8px rgba(0,0,0,0.04)" };
+const card = { background: "#fff", borderRadius: 16, border: "1px solid #f0f0f8", padding: "18px 20px", boxShadow: "0 2px 8px rgba(0,0,0,0.04)", position: "relative", overflow: "hidden" };
+const priorityBar = { position: "absolute", top: 0, right: 0, left: 0, height: 5 };
+const priorityLabel = { fontSize: 12, fontWeight: 900, marginBottom: 8 };
 const cardTop = { display: "flex", justifyContent: "space-between", gap: 10 };
 const smallText = { fontSize: 12, color: "#6b7280", marginTop: 4 };
 const primaryBtn = { background: "#6366f1", color: "#fff", border: "none", borderRadius: 12, padding: "9px 16px", fontWeight: 800, cursor: "pointer" };
@@ -456,6 +522,8 @@ const filterBtn = { padding: "7px 14px", borderRadius: 20, border: "none", backg
 const activeFilter = { ...filterBtn, background: "#1a1a2e", color: "#fff" };
 const expanded = { marginTop: 14, borderTop: "1px solid #eee", paddingTop: 14 };
 const primaryWide = { width: "100%", background: "#6366f1", color: "#fff", border: "none", borderRadius: 10, padding: 11, marginTop: 8, fontWeight: 900, cursor: "pointer" };
+const successWide = { width: "100%", background: "#22c55e", color: "#fff", border: "none", borderRadius: 10, padding: 11, marginTop: 8, fontWeight: 900, cursor: "pointer" };
+const dangerWide = { width: "100%", background: "#ef4444", color: "#fff", border: "none", borderRadius: 10, padding: 11, marginTop: 8, fontWeight: 900, cursor: "pointer" };
 const lightWide = { width: "100%", background: "#fff", color: "#374151", border: "1px solid #e5e7eb", borderRadius: 10, padding: 11, marginTop: 8, fontWeight: 800, cursor: "pointer" };
 const lightBtn = { padding: 9, borderRadius: 10, border: "none", background: "#f3f4f6", color: "#374151", fontWeight: 800, cursor: "pointer" };
 const activeBtn = { padding: 9, borderRadius: 10, border: "none", background: "#1a1a2e", color: "#fff", fontWeight: 900, cursor: "pointer" };
