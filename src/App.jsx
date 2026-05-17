@@ -366,13 +366,6 @@ function CaseCard({ c, onUpdate, onDelete }) {
               <a href={whatsappLink} target="_blank" rel="noreferrer" style={whatsappBtn}>
                 فتح واتساب برسالة جاهزة
               </a>
-
-              <button
-                onClick={() => onUpdate(c.id, { contact: "تم التواصل" })}
-                style={successWide}
-              >
-                تم التواصل
-              </button>
             </>
           )}
 
